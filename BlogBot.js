@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   
     // 使用配置参数
-    const CHAT_ICON_SVG = './taomei_icon_120px.gif';
+    const CHAT_ICON_SVG = './taomei_icon_120px.webp';
     
     // 机器人信息（将从app.js获取）
     let botInfo = {
@@ -1138,7 +1138,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         // 创建更多按钮
-        const Buttom_More_SVG = 'https://cdn.ayakasuki.com/diy/static/BlogBot/more.svg';
+        const Buttom_More_SVG = './more.svg';
         const moreButton = document.createElement('button');
         moreButton.className = 'more-button';
         moreButton.innerHTML = `<img src="${Buttom_More_SVG}" alt="更多" style="width: 18px; height: 18px;">`;
