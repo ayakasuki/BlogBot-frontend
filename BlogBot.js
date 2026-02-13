@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   
     // 使用配置参数
-    const CHAT_ICON_SVG = './message.svg';
+    const CHAT_ICON_SVG = './taomei_icon_120px.gif';
     
     // 机器人信息（将从app.js获取）
     let botInfo = {
@@ -1138,7 +1138,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         // 创建更多按钮
-        const Buttom_More_SVG = './more.svg';
+        const Buttom_More_SVG = 'https://cdn.ayakasuki.com/diy/static/BlogBot/more.svg';
         const moreButton = document.createElement('button');
         moreButton.className = 'more-button';
         moreButton.innerHTML = `<img src="${Buttom_More_SVG}" alt="更多" style="width: 18px; height: 18px;">`;
@@ -1447,6 +1447,8 @@ document.addEventListener('DOMContentLoaded', () => {
             
             console.log(`[HISTORY] 开始恢复 ${messages.length} 条历史消息`);
             
+            let maxId = messageCounter;
+            
             for (const msg of messages) {
                 messageHistory.set(String(msg.id), {
                     content: msg.content,
@@ -1455,7 +1457,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     element: null,
                     timestamp: msg.timestamp
                 });
+                
+                const numId = parseInt(msg.id, 10);
+                if (!isNaN(numId) && numId >= maxId) {
+                    maxId = numId + 1;
+                }
             }
+            
+            messageCounter = maxId;
             
             for (const msg of messages) {
                 await addMessageInternal(msg.content, msg.sender, msg.type, msg.id, msg.timestamp);
