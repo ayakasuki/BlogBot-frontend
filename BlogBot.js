@@ -1,11 +1,17 @@
 // 加载外部 CSS 文件
 const link = document.createElement('link');
 link.rel = 'stylesheet';
-link.href = './BlogBot.css';  // 请根据实际情况修改路径
+link.href = 'BlogBot.css';  // 请根据实际情况修改路径
 link.type = 'text/css';
 link.onload = () => console.log('[CSS] 外部样式加载成功');
 link.onerror = () => console.warn('[CSS] 外部样式加载失败，使用内联样式');
 document.head.appendChild(link);
+
+// 加载 Hammersmith One 字体
+const fontLink = document.createElement('link');
+fontLink.rel = 'stylesheet';
+fontLink.href = 'https://fonts.googleapis.com/css2?family=Hammersmith+One&family=Source+Sans+Pro:wght@400;600&display=swap';
+document.head.appendChild(fontLink);
 
 document.addEventListener('DOMContentLoaded', () => {
     // 获取当前执行的script标签
@@ -18,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   
     // 使用配置参数
-    const CHAT_ICON_SVG = './taomei_icon_120px.webp';
+    const CHAT_ICON_SVG = 'taomei_icon_120px.webp';
     
     // 机器人信息（将从app.js获取）
     let botInfo = {
@@ -151,6 +157,202 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 在页面加载时预加载GLightbox
     loadGLightbox().catch(e => console.warn('[GLIGHTBOX] 预加载失败:', e));
+
+    // ==================== JsBarcode相关变量 ====================
+    let isJsBarcodeLoading = false;
+    let jsBarcodeLoaded = false;
+
+    // ==================== JsBarcode动态加载 ====================
+    
+    /**
+     * 动态加载JsBarcode库
+     */
+    function loadJsBarcode() {
+        return new Promise((resolve, reject) => {
+            if (typeof JsBarcode !== 'undefined') {
+                console.log('[JSBARCODE] 已存在');
+                jsBarcodeLoaded = true;
+                resolve();
+                return;
+            }
+
+            if (isJsBarcodeLoading) {
+                const checkInterval = setInterval(() => {
+                    if (jsBarcodeLoaded) {
+                        clearInterval(checkInterval);
+                        resolve();
+                    }
+                }, 100);
+                
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    if (!jsBarcodeLoaded) {
+                        reject(new Error('JsBarcode加载超时'));
+                    }
+                }, 10000);
+                return;
+            }
+
+            isJsBarcodeLoading = true;
+            console.log('[JSBARCODE] 开始加载...');
+
+            const cdnUrls = [
+                'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js',
+                'https://unpkg.com/jsbarcode@3.11.6/dist/JsBarcode.all.min.js',
+                'https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js'
+            ];
+
+            let currentIndex = 0;
+
+            function tryLoadFromCdn() {
+                if (currentIndex >= cdnUrls.length) {
+                    console.error('[JSBARCODE] 所有CDN加载失败');
+                    isJsBarcodeLoading = false;
+                    reject(new Error('Failed to load JsBarcode from all CDNs'));
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.src = cdnUrls[currentIndex];
+                console.log('[JSBARCODE] 尝试加载:', cdnUrls[currentIndex]);
+                
+                script.onload = () => {
+                    console.log('[JSBARCODE] 加载成功');
+                    jsBarcodeLoaded = true;
+                    isJsBarcodeLoading = false;
+                    resolve();
+                };
+                
+                script.onerror = () => {
+                    console.warn('[JSBARCODE] CDN加载失败:', cdnUrls[currentIndex]);
+                    currentIndex++;
+                    tryLoadFromCdn();
+                };
+                
+                document.head.appendChild(script);
+            }
+
+            tryLoadFromCdn();
+        });
+    }
+
+    /**
+     * 生成渐变条形码SVG - 使用mask实现条形码本身的渐变
+     * @param {string} text - 条形码内容
+     * @param {HTMLElement} container - 容器元素
+     */
+    async function generateGradientBarcode(text, container) {
+        try {
+            await loadJsBarcode();
+            
+            // 创建临时SVG元素让JsBarcode生成
+            const tempSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            
+            // 使用JsBarcode生成条形码到SVG
+            JsBarcode(tempSvg, text, {
+                format: "CODE128",
+                width: 4,
+                height: 100,
+                displayValue: false,
+                background: "transparent",
+                margin: 0
+            });
+            
+            // 获取原始条形码的rect元素
+            const rects = tempSvg.querySelectorAll('rect');
+            if (rects.length === 0) {
+                throw new Error('No barcode rects generated');
+            }
+            
+            // 获取原始尺寸
+            const originalWidth = parseFloat(tempSvg.getAttribute('width') || '100');
+            const originalHeight = parseFloat(tempSvg.getAttribute('height') || '100');
+            
+            // 目标尺寸
+            const targetWidth = 140;
+            const targetHeight = 35;
+            const scale = targetWidth / originalWidth;
+            
+            // 创建新的SVG
+            const svgNS = "http://www.w3.org/2000/svg";
+            const svg = document.createElementNS(svgNS, "svg");
+            svg.setAttribute("width", targetWidth.toString());
+            svg.setAttribute("height", targetHeight.toString());
+            svg.setAttribute("viewBox", `0 0 ${targetWidth} ${targetHeight}`);
+            
+            // 创建defs
+            const defs = document.createElementNS(svgNS, "defs");
+            
+            // 创建唯一ID
+            const uniqueId = `barcode_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            
+            // 创建渐变
+            const linearGradient = document.createElementNS(svgNS, "linearGradient");
+            linearGradient.setAttribute("id", `gradient_${uniqueId}`);
+            linearGradient.setAttribute("x1", "0%");
+            linearGradient.setAttribute("y1", "0%");
+            linearGradient.setAttribute("x2", "100%");
+            linearGradient.setAttribute("y2", "0%");
+            
+            const stop1 = document.createElementNS(svgNS, "stop");
+            stop1.setAttribute("offset", "0%");
+            stop1.setAttribute("stop-color", "#333333");
+            
+            const stop2 = document.createElementNS(svgNS, "stop");
+            stop2.setAttribute("offset", "100%");
+            stop2.setAttribute("stop-color", "#8746F8");
+            
+            linearGradient.appendChild(stop1);
+            linearGradient.appendChild(stop2);
+            defs.appendChild(linearGradient);
+            
+            // 创建mask
+            const mask = document.createElementNS(svgNS, "mask");
+            mask.setAttribute("id", `mask_${uniqueId}`);
+            
+            // 将条形码的rect复制到mask中（白色表示可见区域）
+            // 过滤掉背景rect（通常为白色或第一个rect）
+            rects.forEach((rect, index) => {
+                // 检查是否是背景（白色填充）或者是第一个rect（很可能是背景）
+                const fill = rect.getAttribute('fill') || 'black';
+                const isLikelyBackground = (fill.toLowerCase() === 'white' || fill.toLowerCase() === '#ffffff') || index === 0;
+                
+                if (!isLikelyBackground) {
+                    const maskRect = document.createElementNS(svgNS, "rect");
+                    const x = parseFloat(rect.getAttribute('x') || '0') * scale;
+                    const width = parseFloat(rect.getAttribute('width') || '0') * scale;
+                    maskRect.setAttribute("x", x.toString());
+                    maskRect.setAttribute("y", "0");
+                    maskRect.setAttribute("width", width.toString());
+                    maskRect.setAttribute("height", targetHeight.toString());
+                    maskRect.setAttribute("fill", "white");
+                    mask.appendChild(maskRect);
+                }
+            });
+            
+            defs.appendChild(mask);
+            svg.appendChild(defs);
+            
+            // 创建渐变填充矩形，应用mask
+            const gradientRect = document.createElementNS(svgNS, "rect");
+            gradientRect.setAttribute("x", "0");
+            gradientRect.setAttribute("y", "0");
+            gradientRect.setAttribute("width", targetWidth.toString());
+            gradientRect.setAttribute("height", targetHeight.toString());
+            gradientRect.setAttribute("fill", `url(#gradient_${uniqueId})`);
+            gradientRect.setAttribute("mask", `url(#mask_${uniqueId})`);
+            svg.appendChild(gradientRect);
+            
+            container.innerHTML = '';
+            container.appendChild(svg);
+            
+            console.log('[JSBARCODE] 条形码生成成功(mask方式):', text);
+        } catch (error) {
+            console.error('[JSBARCODE] 条形码生成失败:', error);
+            // 使用备用方案：显示文本
+            container.innerHTML = `<span style="font-size: 9px; color: #333;">${text}</span>`;
+        }
+    }
 
     // ==================== Markdown渲染相关变量 ====================
     let isMarkedLoading = false;
@@ -926,91 +1128,192 @@ document.addEventListener('DOMContentLoaded', () => {
     chatWindow.id = 'chatWindow';
     document.body.appendChild(chatWindow);
     
+    // ==================== 鼠标视差效果 ====================
+    let parallaxEnabled = true;
+    
+    function initParallaxEffect(gradientsContainer) {
+        if (!gradientsContainer) return;
+        
+        const ellipse2 = gradientsContainer.querySelector('.chat-gradient-ellipse-2');
+        const ellipse3 = gradientsContainer.querySelector('.chat-gradient-ellipse-3');
+        
+        if (!ellipse2 || !ellipse3) return;
+        
+        chatWindow.addEventListener('mousemove', (e) => {
+            if (!parallaxEnabled) return;
+            
+            const rect = chatWindow.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width - 0.5;
+            const y = (e.clientY - rect.top) / rect.height - 0.5;
+            
+            // 粉色球移动更多
+            ellipse2.style.transform = `translate(${x * 30}px, ${y * 30}px)`;
+            // 蓝色球移动较少
+            ellipse3.style.transform = `translate(${x * -20}px, ${y * -20}px)`;
+        });
+        
+        chatWindow.addEventListener('mouseleave', () => {
+            ellipse2.style.transform = 'translate(0, 0)';
+            ellipse3.style.transform = 'translate(0, 0)';
+        });
+    }
+    
     function initChatSystem() {
-        // 头部区域
+        // ==================== 创建背景层 ====================
+        // 背景容器
+        const windowBackground = document.createElement('div');
+        windowBackground.className = 'chat-window-background';
+        
+        // 白色底色
+        const bgWhite = document.createElement('div');
+        bgWhite.className = 'chat-window-bg-white';
+        windowBackground.appendChild(bgWhite);
+        
+        // 渐变球容器
+        const gradientsContainer = document.createElement('div');
+        gradientsContainer.className = 'chat-window-gradients';
+        
+        // 粉色渐变球
+        const ellipse2 = document.createElement('div');
+        ellipse2.className = 'chat-gradient-ellipse-2';
+        gradientsContainer.appendChild(ellipse2);
+        
+        // 蓝色渐变球
+        const ellipse3 = document.createElement('div');
+        ellipse3.className = 'chat-gradient-ellipse-3';
+        gradientsContainer.appendChild(ellipse3);
+        
+        windowBackground.appendChild(gradientsContainer);
+        
+        // 蒙版层
+        const overlay = document.createElement('div');
+        overlay.className = 'chat-window-overlay';
+        windowBackground.appendChild(overlay);
+        
+        chatWindow.appendChild(windowBackground);
+        
+        // 初始化视差效果
+        initParallaxEffect(gradientsContainer);
+        
+        // ==================== 内容容器 ====================
+        const windowContent = document.createElement('div');
+        windowContent.className = 'chat-window-content';
+        
+        // ==================== Header 区域 ====================
         const header = document.createElement('div');
-        header.className = 'chat-header';
+        header.className = 'chat-header-main';
         
-        const titleContainer = document.createElement('div');
-        titleContainer.className = 'header-title-container';
+        // Bot头像
+        const headerAvatar = document.createElement('img');
+        headerAvatar.className = 'chat-header-avatar';
+        headerAvatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
+        headerAvatar.alt = `${botInfo.name || '机器人'}头像`;
+        header.appendChild(headerAvatar);
         
-        const title = document.createElement('h3');
-        title.textContent = `这是你的${botInfo.name || '机器人'}呀~`;
-        titleContainer.appendChild(title);
+        // Bot信息容器
+        const headerInfo = document.createElement('div');
+        headerInfo.className = 'chat-header-info';
         
-        header.appendChild(titleContainer);
+        // Bot名称
+        const headerName = document.createElement('div');
+        headerName.className = 'chat-header-name';
+        headerName.textContent = botInfo.name || 'TaoMei';
+        headerInfo.appendChild(headerName);
         
+        // Bot状态
+        const headerStatus = document.createElement('div');
+        headerStatus.className = 'chat-header-status';
+        
+        const statusDot = document.createElement('div');
+        statusDot.className = 'chat-status-dot';
+        headerStatus.appendChild(statusDot);
+        
+        const statusText = document.createElement('div');
+        statusText.className = 'chat-status-text';
+        statusText.textContent = 'online';
+        statusText.id = 'statusText';
+        headerStatus.appendChild(statusText);
+        
+        headerInfo.appendChild(headerStatus);
+        header.appendChild(headerInfo);
+        
+        // Header按钮组
+        const headerButtons = document.createElement('div');
+        headerButtons.className = 'chat-header-buttons';
+        
+        // 日志按钮
+        const logButton = document.createElement('div');
+        logButton.className = 'chat-header-btn chat-log-btn';
+        logButton.innerHTML = '<img src="./assets/CodeBubbyAssets/3_356/11.svg" alt="日志">';
+        logButton.title = '查看日志';
+        headerButtons.appendChild(logButton);
+        
+        // 管理员入口按钮
+        const adminEntryButton = document.createElement('div');
+        adminEntryButton.className = 'chat-header-btn chat-admin-btn';
+        adminEntryButton.innerHTML = '<img src="./assets/CodeBubbyAssets/3_356/10.svg" alt="管理员">';
+        adminEntryButton.title = '管理员登录';
+        headerButtons.appendChild(adminEntryButton);
+        
+        header.appendChild(headerButtons);
+        windowContent.appendChild(header);
+        
+        // 状态指示器（用于连接状态）
         const statusIndicator = document.createElement('div');
         statusIndicator.id = 'statusIndicator';
-        statusIndicator.textContent = '● 离线';
+        statusIndicator.style.display = 'none'; // 隐藏旧的状态显示
         
-        const adminEntryButton = document.createElement('div');
-        adminEntryButton.className = 'admin-entry-button';
-        adminEntryButton.innerHTML = '管理入口';
-        adminEntryButton.title = '点击进入管理员登录界面';
+        // ==================== 消息区域包装器 ====================
+        const messageAreaWrapper = document.createElement('div');
+        messageAreaWrapper.className = 'message-area-wrapper';
         
-        const headerControls = document.createElement('div');
-        headerControls.className = 'header-controls';
-        headerControls.appendChild(statusIndicator);
-        headerControls.appendChild(adminEntryButton);
+        // 消息区域背景图片
+        const messageAreaBg = document.createElement('img');
+        messageAreaBg.className = 'message-area-bg';
+        messageAreaBg.src = './assets/CodeBubbyAssets/3_356/26.png';
+        messageAreaWrapper.appendChild(messageAreaBg);
         
-        header.appendChild(headerControls);
+        // 消息区域半透明层（现在包含所有内容）
+        const messageAreaOverlay = document.createElement('div');
+        messageAreaOverlay.className = 'message-area-overlay';
         
-        // ==================== 系统消息横幅区域 ====================
-        const systemMsgBanner = document.createElement('div');
-        systemMsgBanner.className = 'chat-systemmsg-banner';
-        systemMsgBanner.innerHTML = '<span class="systemmsg-text">欢迎使用聊天系统</span><span class="systemmsg-expand">展开</span>';
-        
-        // 系统消息历史记录
-        const systemMsgHistory = [];
-        
-        // 系统消息详情弹窗
-        const systemMsgModal = document.createElement('div');
-        systemMsgModal.className = 'systemmsg-modal';
-        systemMsgModal.style.display = 'none';
-        
-        const systemMsgModalContent = document.createElement('div');
-        systemMsgModalContent.className = 'systemmsg-modal-content';
-        
-        const systemMsgModalHeader = document.createElement('div');
-        systemMsgModalHeader.className = 'systemmsg-modal-header';
-        systemMsgModalHeader.innerHTML = '<span>系统消息历史</span><span class="systemmsg-modal-close">×</span>';
-        
-        const systemMsgModalList = document.createElement('div');
-        systemMsgModalList.className = 'systemmsg-modal-list';
-        
-        systemMsgModalContent.appendChild(systemMsgModalHeader);
-        systemMsgModalContent.appendChild(systemMsgModalList);
-        systemMsgModal.appendChild(systemMsgModalContent);
-        
-        // 点击横幅展开详情
-        systemMsgBanner.addEventListener('click', () => {
-            // 更新弹窗内容
-            systemMsgModalList.innerHTML = '';
-            systemMsgHistory.forEach((msg, index) => {
-                const item = document.createElement('div');
-                item.className = 'systemmsg-item';
-                item.innerHTML = `<span class="systemmsg-time">${msg.time}</span><span class="systemmsg-content">${msg.text}</span>`;
-                systemMsgModalList.appendChild(item);
-            });
-            systemMsgModal.style.display = 'flex';
-        });
-        
-        // 关闭弹窗
-        systemMsgModalHeader.querySelector('.systemmsg-modal-close').addEventListener('click', (e) => {
-            e.stopPropagation();
-            systemMsgModal.style.display = 'none';
-        });
-        
-        systemMsgModal.addEventListener('click', (e) => {
-            if (e.target === systemMsgModal) {
-                systemMsgModal.style.display = 'none';
-            }
-        });
-        
-        // 消息区域
+        // ==================== 消息区域（可滚动） ====================
         const messageArea = document.createElement('div');
         messageArea.id = 'messageArea';
+        
+        // ==================== Bot Info Area（在messageArea内部） ====================
+        const botInfoArea = document.createElement('div');
+        botInfoArea.className = 'bot-info-area';
+        
+        // Bot头像容器
+        const botInfoAvatarWrapper = document.createElement('div');
+        botInfoAvatarWrapper.className = 'bot-info-avatar-wrapper';
+        
+        const botInfoAvatar = document.createElement('img');
+        botInfoAvatar.className = 'bot-info-avatar';
+        botInfoAvatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
+        botInfoAvatar.alt = `${botInfo.name || '机器人'}头像`;
+        botInfoAvatarWrapper.appendChild(botInfoAvatar);
+        
+        // 条形码容器
+        const botInfoBarcodeWrapper = document.createElement('div');
+        botInfoBarcodeWrapper.className = 'bot-info-barcode-wrapper';
+        
+        const botInfoBarcode = document.createElement('div');
+        botInfoBarcode.className = 'bot-info-barcode';
+        botInfoBarcode.id = 'botInfoBarcode';
+        botInfoBarcodeWrapper.appendChild(botInfoBarcode);
+        
+        // Session ID
+        const botInfoSessionId = document.createElement('div');
+        botInfoSessionId.className = 'bot-info-session-id';
+        botInfoSessionId.id = 'botInfoSessionId';
+        botInfoSessionId.textContent = currentUserId ? `blog-${currentUserId.substring(0, 8)}` : 'blog-loading...';
+        botInfoBarcodeWrapper.appendChild(botInfoSessionId);
+        
+        botInfoAvatarWrapper.appendChild(botInfoBarcodeWrapper);
+        botInfoArea.appendChild(botInfoAvatarWrapper);
+        messageArea.appendChild(botInfoArea);
         
         // 用户登录表单
         const userLoginForm = document.createElement('div');
@@ -1026,246 +1329,443 @@ document.addEventListener('DOMContentLoaded', () => {
         loginSpinner.className = 'login-spinner';
         userLoginForm.appendChild(loginSpinner);
         
-        // 管理员登录表单
-        const adminLoginForm = document.createElement('div');
-        adminLoginForm.className = 'admin-login-form';
-        adminLoginForm.style.display = 'none';
+        // ==================== 管理员登录面板（按Figma设计） ====================
+        const adminLoginPanel = document.createElement('div');
+        adminLoginPanel.className = 'admin-login-panel';
+        adminLoginPanel.id = 'adminLoginPanel';
+        adminLoginPanel.style.display = 'none';
         
-        const adminLoginTitle = document.createElement('h4');
+        // 登录面板头部（message-login-header）
+        const adminLoginHeader = document.createElement('div');
+        adminLoginHeader.className = 'admin-login-header';
+        
+        // 背景装饰（4.svg）
+        const adminLoginHeaderBg = document.createElement('div');
+        adminLoginHeaderBg.className = 'admin-login-header-bg';
+        adminLoginHeader.appendChild(adminLoginHeaderBg);
+        
+        // 标题
+        const adminLoginTitle = document.createElement('div');
         adminLoginTitle.className = 'admin-login-title';
-        adminLoginTitle.textContent = '管理员登录';
-        adminLoginForm.appendChild(adminLoginTitle);
+        adminLoginTitle.textContent = 'Administrator Login';
+        adminLoginHeader.appendChild(adminLoginTitle);
+        
+        // 关闭按钮（backBtn）- 5.svg
+        const adminLoginCloseBtn = document.createElement('div');
+        adminLoginCloseBtn.className = 'admin-login-close-btn';
+        adminLoginCloseBtn.id = 'adminLoginCloseBtn';
+        adminLoginCloseBtn.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/9.svg" alt="返回">';
+        adminLoginHeader.appendChild(adminLoginCloseBtn);
+        
+        adminLoginPanel.appendChild(adminLoginHeader);
+        
+        // 登录面板内容区域（message-Login-Area）
+        const adminLoginContent = document.createElement('div');
+        adminLoginContent.className = 'admin-login-content';
+        
+        // 头像区域
+        const adminLoginAvatarWrapper = document.createElement('div');
+        adminLoginAvatarWrapper.className = 'admin-login-avatar-wrapper';
+        
+        const adminLoginAvatar = document.createElement('img');
+        adminLoginAvatar.className = 'admin-login-avatar';
+        adminLoginAvatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
+        adminLoginAvatar.alt = 'Bot';
+        adminLoginAvatarWrapper.appendChild(adminLoginAvatar);
+        
+        adminLoginContent.appendChild(adminLoginAvatarWrapper);
+        
+        // Bot-login-info-area
+        const adminLoginInfoArea = document.createElement('div');
+        adminLoginInfoArea.className = 'admin-login-info-area';
+        
+        // 账号输入容器
+        const adminAccountWrapper = document.createElement('div');
+        adminAccountWrapper.className = 'admin-input-wrapper';
+        
+        const adminAccountIcon = document.createElement('div');
+        adminAccountIcon.className = 'admin-input-icon';
+        adminAccountIcon.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/11.svg" alt="账号">';
         
         const adminAccountInput = document.createElement('input');
-        adminAccountInput.className = 'admin-input';
-        adminAccountInput.placeholder = '超管账号';
+        adminAccountInput.className = 'admin-input-field';
+        adminAccountInput.placeholder = '账号';
         adminAccountInput.id = 'adminAccountInput';
         adminAccountInput.type = 'text';
         
+        adminAccountWrapper.appendChild(adminAccountIcon);
+        adminAccountWrapper.appendChild(adminAccountInput);
+        adminLoginInfoArea.appendChild(adminAccountWrapper);
+        
+        // 密码输入容器
+        const adminPasswordWrapper = document.createElement('div');
+        adminPasswordWrapper.className = 'admin-input-wrapper';
+        
+        const adminPasswordIcon = document.createElement('div');
+        adminPasswordIcon.className = 'admin-input-icon';
+        adminPasswordIcon.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/12.svg" alt="密码">';
+        
         const adminPasswordInput = document.createElement('input');
-        adminPasswordInput.type = 'password';
-        adminPasswordInput.className = 'admin-input';
-        adminPasswordInput.placeholder = '超管密码';
+        adminPasswordInput.className = 'admin-input-field';
+        adminPasswordInput.placeholder = '密码';
         adminPasswordInput.id = 'adminPasswordInput';
+        adminPasswordInput.type = 'password';
         
+        // 密码可见/不可见图标切换
+        const passwordToggleIcon = document.createElement('div');
+        passwordToggleIcon.className = 'password-toggle-icon';
+        passwordToggleIcon.id = 'passwordToggleIcon';
+        // 默认显示不可见图标（13.svg）
+        passwordToggleIcon.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/13.svg" alt="显示密码">';
+        passwordToggleIcon.dataset.visible = 'false';
+        
+        adminPasswordWrapper.appendChild(adminPasswordIcon);
+        adminPasswordWrapper.appendChild(adminPasswordInput);
+        adminPasswordWrapper.appendChild(passwordToggleIcon);
+        adminLoginInfoArea.appendChild(adminPasswordWrapper);
+        
+        adminLoginContent.appendChild(adminLoginInfoArea);
+        
+        // Login按钮
         const adminLoginButton = document.createElement('button');
-        adminLoginButton.className = 'admin-login-button';
-        adminLoginButton.textContent = '管理员登录';
+        adminLoginButton.className = 'admin-login-btn';
+        adminLoginButton.id = 'adminLoginBtn';
+        adminLoginButton.textContent = 'Login';
+        adminLoginContent.appendChild(adminLoginButton);
         
+        adminLoginPanel.appendChild(adminLoginContent);
+        
+        // 错误消息（隐藏状态）
         const adminLoginMessage = document.createElement('div');
         adminLoginMessage.className = 'admin-login-message';
-        adminLoginMessage.textContent = '请输入超管账号和密码以进行管理员登录';
+        adminLoginMessage.id = 'adminLoginMessage';
+        adminLoginMessage.style.display = 'none';
+        adminLoginPanel.appendChild(adminLoginMessage);
         
-        adminLoginForm.appendChild(adminAccountInput);
-        adminLoginForm.appendChild(adminPasswordInput);
-        adminLoginForm.appendChild(adminLoginButton);
-        adminLoginForm.appendChild(adminLoginMessage);
+        // 引用变量（用于后续代码兼容）
+        const adminLoginForm = adminLoginPanel;
         
         // 聊天界面（简化为仅显示机器人头像）
         const chatInterface = document.createElement('div');
         chatInterface.className = 'chat-interface';
         chatInterface.style.display = 'none';
         
-        const botAvatarContainer = document.createElement('div');
-        botAvatarContainer.className = 'bot-avatar-container';
+        messageArea.appendChild(userLoginForm);
+        messageArea.appendChild(adminLoginPanel);
+        messageArea.appendChild(chatInterface);
         
-        const botAvatar = document.createElement('img');
-        botAvatar.className = 'bot-avatar';
-        botAvatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
-        botAvatar.alt = `${botInfo.name || '机器人'}头像`;
+        messageAreaOverlay.appendChild(messageArea);
         
-        botAvatarContainer.appendChild(botAvatar);
-        chatInterface.appendChild(botAvatarContainer);
-        
-        // 输入区域
-        const inputGroup = document.createElement('div');
-        inputGroup.className = 'input-group';
-        inputGroup.style.display = 'none';
-        
-        const messageInput = document.createElement('input');
-        messageInput.className = 'message-input';
-        messageInput.placeholder = '发送消息给机器人...';
-        messageInput.id = 'chatMessageInput';
-        messageInput.name = 'message';
-        messageInput.autocomplete = 'off';
-        
-        const sendButton = document.createElement('button');
-        sendButton.className = 'send-button';
-        sendButton.textContent = '发送';
-        
-        const adminModeBadge = document.createElement('div');
-        adminModeBadge.className = 'admin-mode-badge';
-        adminModeBadge.textContent = '管理员模式';
-        adminModeBadge.style.display = 'none';
-        
-        inputGroup.appendChild(messageInput);
-        inputGroup.appendChild(sendButton);
-        inputGroup.appendChild(adminModeBadge);
-        
-        // ==================== 快捷按钮容器 ====================
+        // ==================== 快捷按钮容器（现在在overlay内部） ====================
         const quickButtonsContainer = document.createElement('div');
         quickButtonsContainer.className = 'quick-buttons-container';
         
         // 快捷按钮配置
         const quickButtons = [
-          { text: '你好，你是谁', message: '你好，你是谁' },
-          { text: '推荐几篇博客文章', message: '推荐几篇博客文章' },
-          { text: '2026互联网热梗', message: '网络搜索2026互联网热梗' }
+            { text: 'hello,Who are you?', message: '你好，你是谁' },
+            { text: 'Please tell me some things ...', message: '推荐几篇博客文章' },
+            { text: '2026 hot internet ...', message: '网络搜索2026互联网热梗' }
         ];
         
         quickButtons.forEach((btn, index) => {
-          const button = document.createElement('button');
-          button.className = 'quick-button';
-          button.textContent = btn.text;
-          button.title = btn.text;
-          button.dataset.message = btn.message;
-          
-          // 点击发送消息
-          button.addEventListener('click', () => {
-            const message = button.dataset.message;
-            if (message && socket && socket.readyState === WebSocket.OPEN) {
-              console.log('[QUICK] 点击快捷按钮:', message);
-              
-              // 添加到输入框并发送
-              messageInput.value = message;
-              sendMessage();
-            } else {
-              console.warn('[QUICK] 无法发送消息:', { hasSocket: !!socket, readyState: socket?.readyState });
-            }
-          });
-          
-          quickButtonsContainer.appendChild(button);
+            const button = document.createElement('button');
+            button.className = 'quick-button';
+            button.textContent = btn.text;
+            button.title = btn.text;
+            button.dataset.message = btn.message;
+            
+            button.addEventListener('click', () => {
+                const message = button.dataset.message;
+                if (message && socket && socket.readyState === WebSocket.OPEN) {
+                    console.log('[QUICK] 点击快捷按钮:', message);
+                    messageInput.value = message;
+                    sendMessage();
+                } else {
+                    console.warn('[QUICK] 无法发送消息:', { hasSocket: !!socket, readyState: socket?.readyState });
+                }
+            });
+            
+            quickButtonsContainer.appendChild(button);
         });
         
-        // 创建更多按钮
-        const Buttom_More_SVG = './more.svg';
+        // 更多按钮
         const moreButton = document.createElement('button');
         moreButton.className = 'more-button';
-        moreButton.innerHTML = `<img src="${Buttom_More_SVG}" alt="更多" style="width: 18px; height: 18px;">`;
-        moreButton.style.display = 'none'; // 初始隐藏
+        moreButton.innerHTML = '<img src="./assets/CodeBubbyAssets/3_356/7.svg" alt="更多" style="width: 24px; height: 24px;">';
+        moreButton.style.display = 'none';
         quickButtonsContainer.appendChild(moreButton);
         
-        // 创建更多按钮提示
+        // 更多按钮提示
         const moreButtonTooltip = document.createElement('div');
         moreButtonTooltip.className = 'more-button-tooltip';
         moreButtonTooltip.textContent = '更多';
         document.body.appendChild(moreButtonTooltip);
         
-        // 创建下拉菜单（添加到body以避免被overflow裁剪）
+        // 下拉菜单
         const moreButtonDropdown = document.createElement('div');
         moreButtonDropdown.className = 'more-button-dropdown';
         document.body.appendChild(moreButtonDropdown);
         
+        messageAreaOverlay.appendChild(quickButtonsContainer);
+        
+        // ==================== 消息输入区域（现在在overlay内部） ====================
+        const messageInputArea = document.createElement('div');
+        messageInputArea.className = 'message-input-area';
+        
+        // 表情包按钮
+        const emojiButton = document.createElement('div');
+        emojiButton.className = 'emoji-button';
+        emojiButton.innerHTML = '<img src="./assets/CodeBubbyAssets/3_356/6.svg" alt="表情">';
+        emojiButton.title = '表情包（暂未开放）';
+        messageInputArea.appendChild(emojiButton);
+        
+        // 输入框
+        const messageInput = document.createElement('input');
+        messageInput.className = 'message-input';
+        messageInput.placeholder = 'send message to Bot';
+        messageInput.id = 'chatMessageInput';
+        messageInput.name = 'message';
+        messageInput.autocomplete = 'off';
+        messageInputArea.appendChild(messageInput);
+        
+        // 发送按钮
+        const sendButton = document.createElement('button');
+        sendButton.className = 'send-button';
+        sendButton.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/enter.svg" alt="发送">';
+        // sendButton.textContent = 'Enter';
+        messageInputArea.appendChild(sendButton);
+        
+        messageAreaOverlay.appendChild(messageInputArea);
+        
+        // ==================== 提示区域（现在在overlay内部） ====================
+        const tipsArea = document.createElement('div');
+        tipsArea.className = 'tips-area';
+        
+        const tipsContent = document.createElement('div');
+        tipsContent.className = 'tips-content';
+        tipsContent.innerHTML = '<span class="tips-text"><em>AI</em>可能会生成错误的信息，请注意核实。</span>';
+        
+        tipsArea.appendChild(tipsContent);
+        messageAreaOverlay.appendChild(tipsArea);
+        
+        // 将overlay添加到wrapper
+        messageAreaWrapper.appendChild(messageAreaOverlay);
+        windowContent.appendChild(messageAreaWrapper);
+        
+        // ==================== 系统消息Log面板 ====================
+        // 系统消息历史记录
+        const systemMsgHistory = [];
+        
+        // Log面板容器
+        const logPanel = document.createElement('div');
+        logPanel.className = 'chat-log-panel';
+        logPanel.style.display = 'none';
+        
+        // Log面板头部
+        const logPanelHeader = document.createElement('div');
+        logPanelHeader.className = 'chat-log-header';
+        
+        const logPanelTitle = document.createElement('div');
+        logPanelTitle.className = 'chat-log-title';
+        logPanelTitle.textContent = 'System Message History';
+        
+        const logPanelClose = document.createElement('div');
+        logPanelClose.className = 'chat-log-close';
+        logPanelClose.innerHTML = '<img src="./assets/CodeBubbyAssets/14_165/10.svg" alt="关闭">';
+        
+        logPanelHeader.appendChild(logPanelTitle);
+        logPanelHeader.appendChild(logPanelClose);
+        logPanel.appendChild(logPanelHeader);
+        
+        // Log面板内容区域
+        const logPanelContent = document.createElement('div');
+        logPanelContent.className = 'chat-log-content';
+        logPanelContent.id = 'logPanelContent';
+        logPanel.appendChild(logPanelContent);
+        
+// 点击日志按钮显示Log面板
+logButton.addEventListener('click', () => {
+    if (logPanel.style.display === 'none') {
+        // 更新Log面板内容
+        renderLogPanel();
+        logPanel.style.display = 'flex';
+        // 设置按钮为active状态
+        logButton.classList.add('log-btn-active');
+        logButton.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/log-btn-active.svg" alt="日志">';
+        
+        // 如果登录面板显示，隐藏它
+        if (adminLoginPanel.style.display !== 'none') {
+            adminLoginPanel.style.display = 'none';
+            adminEntryButton.classList.remove('admin-btn-active');
+            adminEntryButton.innerHTML = '<img src="./assets/CodeBubbyAssets/3_356/10.svg" alt="管理员">';
+        }
+    } else {
+        logPanel.style.display = 'none';
+        // 恢复按钮为普通状态
+        logButton.classList.remove('log-btn-active');
+        logButton.innerHTML = '<img src="./assets/CodeBubbyAssets/3_356/11.svg" alt="日志">';
+    }
+});
+        
+// 点击关闭按钮隐藏Log面板
+logPanelClose.addEventListener('click', () => {
+    logPanel.style.display = 'none';
+    // 恢复按钮为普通状态
+    logButton.classList.remove('log-btn-active');
+    logButton.innerHTML = '<img src="./assets/CodeBubbyAssets/3_356/11.svg" alt="日志">';
+});
+        
+        // 渲染Log面板内容
+        function renderLogPanel() {
+            logPanelContent.innerHTML = '';
+            
+            if (systemMsgHistory.length === 0) {
+                const emptyMsg = document.createElement('div');
+                emptyMsg.className = 'chat-log-empty';
+                emptyMsg.textContent = '暂无系统消息';
+                logPanelContent.appendChild(emptyMsg);
+                return;
+            }
+            
+            systemMsgHistory.forEach(msg => {
+                const logItem = document.createElement('div');
+                logItem.className = 'chat-log-item';
+                
+                // 机器人头像
+                const avatarContainer = document.createElement('div');
+                avatarContainer.className = 'chat-log-avatar';
+                const avatar = document.createElement('img');
+                avatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
+                avatarContainer.appendChild(avatar);
+                
+                // 消息气泡
+                const bubbleContainer = document.createElement('div');
+                bubbleContainer.className = 'chat-log-bubble-wrapper';
+                
+                const bubble = document.createElement('div');
+                bubble.className = 'chat-log-bubble';
+                bubble.innerHTML = msg.text.replace(/\n/g, '<br>');
+                
+                // 时间戳
+                const timestamp = document.createElement('div');
+                timestamp.className = 'chat-log-timestamp';
+                timestamp.textContent = msg.time;
+                
+                bubbleContainer.appendChild(bubble);
+                
+                logItem.appendChild(avatarContainer);
+                logItem.appendChild(bubbleContainer);
+                logItem.appendChild(timestamp);
+                logPanelContent.appendChild(logItem);
+            });
+        }
+        
+        // 添加Log面板到messageAreaWrapper（覆盖层）
+        messageAreaWrapper.appendChild(logPanel);
+        
+        // 管理员模式徽章
+        const adminModeBadge = document.createElement('div');
+        adminModeBadge.className = 'admin-mode-badge';
+        adminModeBadge.textContent = '管理员模式';
+        adminModeBadge.style.display = 'none';
+        
+        // 添加内容容器到窗口
+        chatWindow.appendChild(windowContent);
+        
+        // 注意：inputGroup 变量引用 messageInputArea
+        const inputGroup = messageInputArea;
+        
         // 更多按钮悬停提示
         moreButton.addEventListener('mouseenter', (e) => {
-          const rect = moreButton.getBoundingClientRect();
-          moreButtonTooltip.style.left = (rect.left + rect.width / 2) + 'px';
-          moreButtonTooltip.style.top = (rect.top - 30) + 'px';
-          moreButtonTooltip.style.transform = 'translateX(-50%)';
-          moreButtonTooltip.classList.add('show');
+            const rect = moreButton.getBoundingClientRect();
+            moreButtonTooltip.style.left = (rect.left + rect.width / 2) + 'px';
+            moreButtonTooltip.style.top = (rect.top - 30) + 'px';
+            moreButtonTooltip.style.transform = 'translateX(-50%)';
+            moreButtonTooltip.classList.add('show');
         });
         
         moreButton.addEventListener('mouseleave', () => {
-          moreButtonTooltip.classList.remove('show');
+            moreButtonTooltip.classList.remove('show');
         });
         
         // 更多按钮点击
         moreButton.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const rect = moreButton.getBoundingClientRect();
-          
-          // 计算下拉菜单位置（显示在按钮左上方，右下角对准按钮左上角）
-          const dropdownTop = rect.top - moreButtonDropdown.offsetHeight;
-          const dropdownLeft = rect.left - moreButtonDropdown.offsetWidth;
-          
-          moreButtonDropdown.style.top = (dropdownTop - 50) + 'px';
-          moreButtonDropdown.style.left = (dropdownLeft - 110) + 'px';
-          moreButtonDropdown.style.right = 'auto'; // 覆盖CSS中的right属性
-          
-          moreButtonDropdown.classList.toggle('show');
+            e.stopPropagation();
+            const rect = moreButton.getBoundingClientRect();
+            
+            const dropdownTop = rect.top - moreButtonDropdown.offsetHeight;
+            const dropdownLeft = rect.left - moreButtonDropdown.offsetWidth;
+            
+            moreButtonDropdown.style.top = (dropdownTop - 50) + 'px';
+            moreButtonDropdown.style.left = (dropdownLeft - 110) + 'px';
+            moreButtonDropdown.style.right = 'auto';
+            
+            moreButtonDropdown.classList.toggle('show');
         });
         
         // 点击其他地方关闭下拉菜单
         document.addEventListener('click', (e) => {
-          if (!moreButtonDropdown.contains(e.target) && !moreButton.contains(e.target)) {
-            moreButtonDropdown.classList.remove('show');
-          }
+            if (!moreButtonDropdown.contains(e.target) && !moreButton.contains(e.target)) {
+                moreButtonDropdown.classList.remove('show');
+            }
         });
         
         // 动态计算显示按钮的函数
         function updateQuickButtonsVisibility() {
-          const containerWidth = quickButtonsContainer.clientWidth - 40; // 减去更多按钮的宽度
-          const buttons = Array.from(quickButtonsContainer.querySelectorAll('.quick-button'));
-          
-          let totalWidth = 0;
-          let visibleCount = 0;
-          
-          // 清空下拉菜单
-          moreButtonDropdown.innerHTML = '';
-          
-          buttons.forEach((btn, index) => {
-            const buttonWidth = btn.offsetWidth;
+            const containerWidth = quickButtonsContainer.clientWidth - 40;
+            const buttons = Array.from(quickButtonsContainer.querySelectorAll('.quick-button'));
             
-            if (totalWidth + buttonWidth <= containerWidth) {
-              // 显示能容纳的按钮
-              btn.style.display = 'block';
-              btn.style.visibility = 'visible';
-              totalWidth += buttonWidth;
-              visibleCount++;
-            } else {
-              // 隐藏超出宽度的按钮
-              btn.style.visibility = 'hidden';
-              btn.style.display = 'none';
-              
-              // 添加到下拉菜单
-              const dropdownBtn = btn.cloneNode(true);
-              dropdownBtn.style.display = 'block';
-              dropdownBtn.style.visibility = 'visible';
-              
-              // 为下拉菜单中的按钮添加点击事件
-              dropdownBtn.addEventListener('click', () => {
-                const message = dropdownBtn.dataset.message;
-                if (message && socket && socket.readyState === WebSocket.OPEN) {
-                  console.log('[QUICK] 点击下拉菜单快捷按钮:', message);
-                  messageInput.value = message;
-                  sendMessage();
-                  moreButtonDropdown.classList.remove('show');
+            let totalWidth = 0;
+            let visibleCount = 0;
+            
+            moreButtonDropdown.innerHTML = '';
+            
+            buttons.forEach((btn, index) => {
+                const buttonWidth = btn.offsetWidth;
+                
+                if (totalWidth + buttonWidth <= containerWidth) {
+                    btn.style.display = 'block';
+                    btn.style.visibility = 'visible';
+                    totalWidth += buttonWidth;
+                    visibleCount++;
+                } else {
+                    btn.style.visibility = 'hidden';
+                    btn.style.display = 'none';
+                    
+                    const dropdownBtn = btn.cloneNode(true);
+                    dropdownBtn.style.display = 'block';
+                    dropdownBtn.style.visibility = 'visible';
+                    
+                    dropdownBtn.addEventListener('click', () => {
+                        const message = dropdownBtn.dataset.message;
+                        if (message && socket && socket.readyState === WebSocket.OPEN) {
+                            console.log('[QUICK] 点击下拉菜单快捷按钮:', message);
+                            messageInput.value = message;
+                            sendMessage();
+                            moreButtonDropdown.classList.remove('show');
+                        }
+                    });
+                    
+                    moreButtonDropdown.appendChild(dropdownBtn);
                 }
-              });
-              
-              moreButtonDropdown.appendChild(dropdownBtn);
+            });
+            
+            const hasHiddenButtons = buttons.some(btn => btn.style.display === 'none');
+            if (hasHiddenButtons) {
+                moreButton.style.display = 'flex';
+            } else {
+                moreButton.style.display = 'none';
+                moreButtonDropdown.classList.remove('show');
             }
-          });
-          
-          // 显示或隐藏更多按钮
-          const hasHiddenButtons = buttons.some(btn => btn.style.display === 'none');
-          if (hasHiddenButtons) {
-            moreButton.style.display = 'flex';
-          } else {
-            moreButton.style.display = 'none';
-            moreButtonDropdown.classList.remove('show');
-          }
-          
-          // 确保至少第一个按钮可见
-          if (buttons.length > 0 && visibleCount === 0) {
-            buttons[0].style.display = 'block';
-            buttons[0].style.visibility = 'visible';
-          }
+            
+            if (buttons.length > 0 && visibleCount === 0) {
+                buttons[0].style.display = 'block';
+                buttons[0].style.visibility = 'visible';
+            }
         }
         
         // 初始化和窗口大小改变时更新
         window.addEventListener('resize', updateQuickButtonsVisibility);
-        
-        // 添加所有元素到窗口
-        chatWindow.appendChild(header);
-        chatWindow.appendChild(systemMsgBanner);
-        chatWindow.appendChild(messageArea);
-        messageArea.appendChild(userLoginForm);
-        messageArea.appendChild(adminLoginForm);
-        messageArea.appendChild(chatInterface);
-        messageArea.appendChild(systemMsgModal);
-        chatWindow.appendChild(quickButtonsContainer);  // 添加在 input-group 上方
-        chatWindow.appendChild(inputGroup);
         
         let socket = null;
         let reconnectAttempts = 0;
@@ -1359,9 +1859,34 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // 更新状态显示
         function updateStatus(text, color) {
+            // 更新隐藏的状态指示器（用于逻辑判断）
             statusIndicator.innerHTML = `● ${text}`;
             statusIndicator.style.color = color;
             connectionState = text.toLowerCase();
+            
+            // 更新新UI的状态文本
+            const statusTextEl = document.getElementById('statusText');
+            const statusDotEl = document.querySelector('.chat-status-dot');
+            if (statusTextEl) {
+                if (text === '在线') {
+                    statusTextEl.textContent = 'online';
+                    statusTextEl.style.color = '#5CFF33';
+                    if (statusDotEl) statusDotEl.style.background = '#5CFF33';
+                } else if (text === '离线') {
+                    statusTextEl.textContent = 'offline';
+                    statusTextEl.style.color = '#ff4d4d';
+                    if (statusDotEl) statusDotEl.style.background = '#ff4d4d';
+                } else if (text === '连接中...') {
+                    statusTextEl.textContent = 'connecting';
+                    statusTextEl.style.color = '#ff9800';
+                    if (statusDotEl) statusDotEl.style.background = '#ff9800';
+                } else {
+                    statusTextEl.textContent = text.toLowerCase();
+                    statusTextEl.style.color = color;
+                    if (statusDotEl) statusDotEl.style.background = color;
+                }
+            }
+            
             console.log(`[STATUS] 连接状态更新: ${text}`);
         }
         
@@ -1721,19 +2246,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 text: text
             });
             
-            // 更新横幅显示最新消息
-            const textSpan = systemMsgBanner.querySelector('.systemmsg-text');
-            textSpan.textContent = text;
-            
-            // 添加动画效果
-            textSpan.classList.remove('systemmsg-animate');
-            void textSpan.offsetWidth; // 触发重绘
-            textSpan.classList.add('systemmsg-animate');
-            
-            // 更新展开按钮显示数量
-            const expandSpan = systemMsgBanner.querySelector('.systemmsg-expand');
-            expandSpan.textContent = `展开(${systemMsgHistory.length})`;
-            
             console.log(`[SYSTEM] ${text}`);
             
             // 如果是连接相关的系统消息，更新连接健康状态
@@ -1845,17 +2357,26 @@ document.addEventListener('DOMContentLoaded', () => {
                                 botInfo.name = data.nickname;
                                 console.log('[BOT INFO] 收到机器人名字:', botInfo.name);
                             }
-                            // 更新聊天窗口标题
-                            const title = header.querySelector('h3');
-                            if (title) {
-                                title.textContent = `这是你的${botInfo.name || '机器人'}呀~`;
+                            // 更新header名称
+                            const headerNameEl = document.querySelector('.chat-header-name');
+                            if (headerNameEl) {
+                                headerNameEl.textContent = botInfo.name || 'TaoMei';
                             }
-                            // 更新机器人头像
-                            const botAvatar = document.querySelector('.bot-avatar');
-                            if (botAvatar) {
-                                botAvatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
-                                botAvatar.alt = `${botInfo.name || '机器人'}头像`;
+                            // 更新header头像
+                            const headerAvatarEl = document.querySelector('.chat-header-avatar');
+                            if (headerAvatarEl) {
+                                headerAvatarEl.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
                             }
+                            // 更新bot-info头像
+                            const botInfoAvatarEl = document.querySelector('.bot-info-avatar');
+                            if (botInfoAvatarEl) {
+                                botInfoAvatarEl.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
+                            }
+                            // 更新所有已存在的消息中的机器人头像
+                            const allRobotMessages = document.querySelectorAll('.message-container.robot .avatar-img');
+                            allRobotMessages.forEach(avatar => {
+                                avatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
+                            });
                             return;
                         }
                         
@@ -2097,6 +2618,180 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
+        // 新增：创建转发消息预览
+            function addForwardMessage(messages) {
+                // 创建机器人消息容器
+                const messageContainer = document.createElement('div');
+                messageContainer.className = 'message-container robot';
+                
+                // 创建机器人头像
+                const avatarContainer = document.createElement('div');
+                avatarContainer.className = 'avatar-container';
+                
+                const avatar = document.createElement('img');
+                avatar.className = 'avatar-img';
+                avatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
+                avatarContainer.appendChild(avatar);
+                messageContainer.appendChild(avatarContainer);
+                
+                // 创建内容容器
+                const contentContainer = document.createElement('div');
+                contentContainer.className = 'content-container';
+                
+                // 创建转发预览框
+                const previewContainer = document.createElement('div');
+                previewContainer.className = 'forward-preview-container';
+                
+                // 创建预览标题
+                const previewTitle = document.createElement('div');
+                previewTitle.className = 'forward-preview-title';
+                previewTitle.textContent = '转发的聊天记录';
+                previewContainer.appendChild(previewTitle);
+                
+                // 创建消息节点容器
+                const nodesContainer = document.createElement('div');
+                nodesContainer.className = 'forward-nodes-container';
+                
+                // 处理每个消息节点
+                messages.forEach((node, index) => {
+                    if (node.data.content.length > 0) {
+                        const firstContent = node.data.content[0];
+                        const nodeElement = document.createElement('div');
+                        nodeElement.className = 'forward-preview-node';
+                        
+                        // 创建头像
+                        const avatar = document.createElement('img');
+                        avatar.className = 'forward-preview-avatar';
+                        avatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
+                        
+                        // 创建文本预览
+                        const textPreview = document.createElement('div');
+                        textPreview.className = 'forward-preview-text';
+                        if (firstContent.type === 'text') {
+                            const text = firstContent.data.text;
+                            const firstLine = text.split('\n')[0];
+                            textPreview.textContent = firstLine;
+                        } else if (firstContent.type === 'image') {
+                            textPreview.textContent = '[图片]';
+                        } else {
+                            textPreview.textContent = `[${firstContent.type}]`;
+                        }
+                        
+                        nodeElement.appendChild(avatar);
+                        nodeElement.appendChild(textPreview);
+                        nodesContainer.appendChild(nodeElement);
+                    }
+                });
+                
+                previewContainer.appendChild(nodesContainer);
+                contentContainer.appendChild(previewContainer);
+                messageContainer.appendChild(contentContainer);
+                messageArea.appendChild(messageContainer);
+                messageArea.scrollTop = messageArea.scrollHeight;
+                
+                // 点击预览展开详细消息
+                previewContainer.addEventListener('click', () => {
+                    showForwardDetail(messages);
+                });
+            }
+
+            // 新增：显示转发详情弹窗
+            function showForwardDetail(messages) {
+                // 创建弹窗容器
+                const detailModal = document.createElement('div');
+                detailModal.className = 'forward-detail-modal';
+                
+                // 创建弹窗内容容器
+                const detailContent = document.createElement('div');
+                detailContent.className = 'forward-detail-content';
+                
+                // 创建关闭按钮
+                const closeBtn = document.createElement('div');
+                closeBtn.className = 'forward-detail-close';
+                closeBtn.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/关闭.svg" alt="关闭">';
+                closeBtn.addEventListener('click', () => {
+                    document.body.removeChild(detailModal);
+                });
+                detailContent.appendChild(closeBtn);
+                
+                // 处理每个消息节点
+                messages.forEach(node => {
+                    // 创建节点容器
+                    const nodeContainer = document.createElement('div');
+                    nodeContainer.className = 'forward-detail-node';
+                    
+                    // 创建节点头部（头像和名字）
+                    const nodeHeader = document.createElement('div');
+                    nodeHeader.className = 'forward-detail-header';
+                    
+                    const avatar = document.createElement('img');
+                    avatar.className = 'forward-detail-avatar';
+                    avatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
+                    
+                    const name = document.createElement('span');
+                    name.className = 'forward-detail-name';
+                    name.textContent = node.data.name;
+                    
+                    nodeHeader.appendChild(avatar);
+                    nodeHeader.appendChild(name);
+                    nodeContainer.appendChild(nodeHeader);
+                    
+                    // 创建节点消息内容
+                    const nodeMessages = document.createElement('div');
+                    nodeMessages.className = 'forward-detail-messages';
+                    
+                    // 处理节点内的每条消息
+                    node.data.content.forEach(contentItem => {
+                        if (contentItem.type === 'text') {
+                            const textBubble = document.createElement('div');
+                            textBubble.className = 'message-bubble';
+                            
+                            // 处理换行
+                            const lines = contentItem.data.text.split('\n');
+                            lines.forEach((line, index) => {
+                                textBubble.appendChild(document.createTextNode(line));
+                                if (index < lines.length - 1) {
+                                    textBubble.appendChild(document.createElement('br'));
+                                }
+                            });
+                            
+                            nodeMessages.appendChild(textBubble);
+                        } else if (contentItem.type === 'image') {
+                            const img = document.createElement('img');
+                            img.className = 'message-image fancybox';
+                            img.dataset.fancybox = "gallery";
+                            
+                            // 处理图片URL
+                            if (contentItem.data.file.startsWith('http') || 
+                                contentItem.data.file.startsWith('/') || 
+                                contentItem.data.file.startsWith('./')) {
+                                img.src = contentItem.data.file;
+                            } else if (contentItem.data.file.startsWith('base64://')) {
+                                const base64Data = contentItem.data.file.replace('base64://', '');
+                                img.src = `data:image/png;base64,${base64Data}`;
+                            } else {
+                                console.warn('无法识别的图片格式:', contentItem.data.file);
+                                img.src = '';
+                            }
+                            
+                            nodeMessages.appendChild(img);
+                        }
+                    });
+                    
+                    nodeContainer.appendChild(nodeMessages);
+                    detailContent.appendChild(nodeContainer);
+                });
+                
+                detailModal.appendChild(detailContent);
+                document.body.appendChild(detailModal);
+                
+                // 点击弹窗外部关闭弹窗
+                detailModal.addEventListener('click', (e) => {
+                    if (e.target === detailModal) {
+                        document.body.removeChild(detailModal);
+                    }
+                });
+            }
         // 初始化用户
         async function initializeUser() {
     try {
@@ -2112,12 +2807,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 adminModeBadge.style.display = 'block';
                 addSystemMessage(`检测到有效管理员令牌，已进入管理员模式`);
                 
+                // 更新按钮状态为active（已登录管理员状态）
+                adminEntryButton.classList.add('admin-btn-active');
+                adminEntryButton.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/17.svg" alt="管理员">';
+                
                 // 使用管理员身份
                 userLoginForm.style.display = 'none';
-                adminLoginForm.style.display = 'none';
+                adminLoginPanel.style.display = 'none';
                 chatInterface.style.display = 'flex';
-                inputGroup.style.display = 'flex';
-                quickButtonsContainer.style.display = 'flex';  // 显示快捷按钮
+                messageInputArea.style.display = 'flex';
+                quickButtonsContainer.style.display = 'flex';
+                tipsArea.style.display = 'flex';
                 connectWebSocket();
                 return;
             } else {
@@ -2144,9 +2844,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 addSystemMessage(`欢迎回来！用户ID: ${result.userId}`);
             }
             
+            // 更新session-id和条形码
+            const sessionIdEl = document.getElementById('botInfoSessionId');
+            const barcodeEl = document.getElementById('botInfoBarcode');
+            if (result.userId && sessionIdEl) {
+                // 检查userId是否已经有'blog-'前缀
+                let displayId = result.userId;
+                if (!displayId.startsWith('blog-')) {
+                    // 如果没有，添加前缀（取前8个字符）
+                    const shortId = displayId.substring(0, 8);
+                    displayId = `blog-${shortId}`;
+                }
+                sessionIdEl.textContent = displayId;
+                // 生成条形码
+                if (barcodeEl) {
+                    generateGradientBarcode(displayId, barcodeEl);
+                }
+            }
+            
             userLoginForm.style.display = 'none';
             chatInterface.style.display = 'flex';
-            inputGroup.style.display = 'flex';
+            messageInputArea.style.display = 'flex';
             quickButtonsContainer.style.display = 'flex';
             
             await restoreChatHistory();
@@ -2186,16 +2904,22 @@ document.addEventListener('DOMContentLoaded', () => {
 // 管理员入口按钮点击事件
 adminEntryButton.addEventListener('click', () => {
     if (isAdminMode) {
+        // 已登录管理员，点击退出管理员模式
         adminLogout();
         isAdminMode = false;
         currentMasterQQ = null;
         adminModeBadge.style.display = 'none';
+        
+        // 恢复按钮为普通状态
+        adminEntryButton.classList.remove('admin-btn-active');
+        adminEntryButton.innerHTML = '<img src="./assets/CodeBubbyAssets/3_356/10.svg" alt="管理员">';
+        
         addSystemMessage('已退出管理员模式，切换到普通用户模式');
         
         // 重新初始化普通用户会话
         initializeUser();
     } else {
-        // 显示管理员登录表单
+        // 未登录，显示管理员登录表单
         showAdminLoginForm();
     }
 });
@@ -2204,66 +2928,102 @@ adminEntryButton.addEventListener('click', () => {
 function showAdminLoginForm() {
     console.log('显示管理员登录表单');
     
-    // 1. 首先清除所有现有的系统消息
-    const systemMessages = messageArea.querySelectorAll('.system-message');
-    systemMessages.forEach(msg => msg.remove());
-    
-    // 2. 隐藏其他所有内容
+    // 隐藏其他所有内容
     chatInterface.style.display = 'none';
     userLoginForm.style.display = 'none';
-    inputGroup.style.display = 'none';
+    messageInputArea.style.display = 'none';
+    quickButtonsContainer.style.display = 'none';
+    tipsArea.style.display = 'none';
     
-    // 3. 清除消息区域中除了管理员登录表单之外的所有内容
-    const messages = messageArea.querySelectorAll('.message-container');
-    messages.forEach(msg => msg.remove());
+    // 隐藏Log面板
+    logPanel.style.display = 'none';
     
-    // 4. 将滚动条重置到顶部
-    messageArea.scrollTop = 0;
+    // 隐藏bot-info-area
+    const botInfoArea = document.querySelector('.bot-info-area');
+    if (botInfoArea) {
+        botInfoArea.style.display = 'none';
+    }
     
-    // 5. 显示管理员登录表单，添加特殊类用于样式控制
-    adminLoginForm.style.display = 'flex';
-    adminLoginForm.classList.add('admin-form-active');
-    
-    // 6. 清空管理员输入框
+    // 清空管理员输入框
     adminAccountInput.value = '';
     adminPasswordInput.value = '';
-    adminLoginMessage.textContent = '请输入超管账号和密码以进行管理员登录';
-    adminLoginMessage.style.color = '#666';
+    adminPasswordInput.type = 'password';
     
-    // 7. 重置管理员登录按钮状态
+    // 重置密码可见状态
+    passwordToggleIcon.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/13.svg" alt="显示密码">';
+    passwordToggleIcon.dataset.visible = 'false';
+    
+    // 重置错误消息
+    adminLoginMessage.style.display = 'none';
+    adminLoginMessage.textContent = '';
+    
+    // 重置登录按钮状态
     adminLoginButton.disabled = false;
-    adminLoginButton.textContent = '管理员登录';
+    adminLoginButton.textContent = 'Login';
     
-    // 8. 添加返回链接
-    addReturnToUserLink();
+    // 更新头像
+    adminLoginAvatar.src = `https://q.qlogo.cn/g?b=qq&s=0&nk=${botInfo.qq || '0'}`;
+    
+    // 显示登录面板
+    adminLoginPanel.style.display = 'flex';
+    
+    // 更新按钮状态为active
+    adminEntryButton.classList.add('admin-btn-active');
+    adminEntryButton.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/17.svg" alt="管理员">';
+    
+    // 重置log按钮状态
+    logButton.classList.remove('log-btn-active');
+    logButton.innerHTML = '<img src="./assets/CodeBubbyAssets/3_356/11.svg" alt="日志">';
+}
+
+// 密码可见/不可见图标切换事件
+passwordToggleIcon.addEventListener('click', () => {
+    const isVisible = passwordToggleIcon.dataset.visible === 'true';
+    if (isVisible) {
+        // 切换为不可见
+        adminPasswordInput.type = 'password';
+        passwordToggleIcon.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/13.svg" alt="显示密码">';
+        passwordToggleIcon.dataset.visible = 'false';
+    } else {
+        // 切换为可见
+        adminPasswordInput.type = 'text';
+        passwordToggleIcon.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/14.svg" alt="隐藏密码">';
+        passwordToggleIcon.dataset.visible = 'true';
+    }
+});
+
+// 关闭管理员登录面板事件
+adminLoginCloseBtn.addEventListener('click', () => {
+    hideAdminLoginForm();
+});
+
+// 隐藏管理员登录面板函数
+function hideAdminLoginForm() {
+    adminLoginPanel.style.display = 'none';
+    
+    // 恢复按钮状态
+    adminEntryButton.classList.remove('admin-btn-active');
+    adminEntryButton.innerHTML = '<img src="./assets/CodeBubbyAssets/3_356/10.svg" alt="管理员">';
+    
+    // 显示聊天界面元素
+    chatInterface.style.display = 'flex';
+    messageInputArea.style.display = 'flex';
+    quickButtonsContainer.style.display = 'flex';
+    tipsArea.style.display = 'flex';
+    
+    // 显示bot-info-area
+    const botInfoArea = document.querySelector('.bot-info-area');
+    if (botInfoArea) {
+        botInfoArea.style.display = 'flex';
+    }
+    
+    // 重新初始化普通用户会话
+    initializeUser();
 }
 
 // 添加返回普通用户界面的链接
 function addReturnToUserLink() {
-    // 移除已存在的返回链接
-    const existingLink = document.querySelector('.switch-to-user-link');
-    if (existingLink) {
-        existingLink.remove();
-    }
-    
-    const returnLink = document.createElement('div');
-    returnLink.className = 'switch-to-user-link';
-    returnLink.textContent = '← 返回普通用户界面';
-    
-    returnLink.addEventListener('click', () => {
-        // 重新初始化普通用户会话
-        adminLoginForm.style.display = 'none';
-        adminLoginForm.classList.remove('admin-form-active');
-        initializeUser();
-    });
-    
-    // 将返回链接添加到管理员登录表单的底部
-    const adminLoginMessage = document.querySelector('.admin-login-message');
-    if (adminLoginMessage) {
-        adminLoginForm.insertBefore(returnLink, adminLoginMessage.nextSibling);
-    } else {
-        adminLoginForm.appendChild(returnLink);
-    }
+    // 已移除，改用关闭按钮
 }
 
 // 管理员登录失败时显示错误弹窗
@@ -2301,41 +3061,59 @@ adminLoginButton.addEventListener('click', async () => {
     
     adminLoginButton.disabled = true;
     adminLoginButton.textContent = '登录中...';
-    adminLoginMessage.textContent = '正在验证管理员身份...';
-    adminLoginMessage.style.color = '#666';
+    adminLoginMessage.style.display = 'none';
     
     const result = await adminLogin(account, password);
     
     if (result.success) {
-        // 登录成功，隐藏管理员登录表单
-        adminLoginForm.style.display = 'none';
-        adminLoginForm.classList.remove('admin-form-active');
+        // 登录成功，隐藏管理员登录面板
+        adminLoginPanel.style.display = 'none';
         
-        // 清除返回链接
-        const returnLink = document.querySelector('.switch-to-user-link');
-        if (returnLink) {
-            returnLink.remove();
+        // 显示聊天界面元素
+        chatInterface.style.display = 'flex';
+        messageInputArea.style.display = 'flex';
+        quickButtonsContainer.style.display = 'flex';
+        tipsArea.style.display = 'flex';
+        
+        // 显示bot-info-area
+        const botInfoArea = document.querySelector('.bot-info-area');
+        if (botInfoArea) {
+            botInfoArea.style.display = 'flex';
         }
         
-        // 显示聊天界面
-        chatInterface.style.display = 'flex';
         isAdminMode = true;
         currentMasterQQ = result.realMasterQQ;
         adminModeBadge.style.display = 'block';
-        welcomeMessageShown = true; // 管理员模式下不显示欢迎消息
+        welcomeMessageShown = true;
+        
+        // 更新按钮状态为active（已登录管理员状态）
+        adminEntryButton.classList.add('admin-btn-active');
+        adminEntryButton.innerHTML = '<img src="./assets/CodeBubbyAssets/16_268/17.svg" alt="管理员">';
+        
+        // 更新条形码（管理员模式使用管理员QQ）
+        const sessionIdElAdmin = document.getElementById('botInfoSessionId');
+        const barcodeElAdmin = document.getElementById('botInfoBarcode');
+        if (result.realMasterQQ && sessionIdElAdmin) {
+            let displayId = result.realMasterQQ;
+            if (!displayId.startsWith('blog-')) {
+                const shortId = displayId.substring(0, 8);
+                displayId = `blog-${shortId}`;
+            }
+            sessionIdElAdmin.textContent = displayId;
+            if (barcodeElAdmin) {
+                generateGradientBarcode(displayId, barcodeElAdmin);
+            }
+        }
         
         addSystemMessage('管理员登录成功！');
         addSystemMessage(`检测到有效管理员令牌，已进入管理员模式`);
         
-        // 显示输入框
-        inputGroup.style.display = 'flex';
-        
         // 连接WebSocket
         connectWebSocket();
     } else {
-        // 登录失败，显示错误弹窗
+        // 登录失败，显示错误
         showAdminLoginError(result.message || '账号或密码错误');
-        adminLoginButton.textContent = '管理员登录';
+        adminLoginButton.textContent = 'Login';
         adminLoginButton.disabled = false;
     }
 });
